@@ -3,13 +3,25 @@ module Lib where
 import Data.Char
 import Data.Tuple
 import Control.Applicative
+import Control.Monad
+
+import Debug.Trace
+
+data Value
+  = Bool Bool
+  | Number Integer -- TODO: Floats
+  | String String
+  | Array [Value]
+  | Object [(String, Value)]
+  | Null
+  deriving (Show)
 
 data Error
   = Eof   String
   | Wrong (String, String)
   | Empty String
   | NoMatch String
-  deriving (Show, Eq)
+  deriving (Show)
 
 newtype Parser a = Parser
   { runParser :: String -> Either Error (String, a)
@@ -35,6 +47,38 @@ instance Alternative Parser where
   (Parser p1) <|> (Parser p2)
     = Parser $ \input -> p1 input <> p2 input
 
+-- Code quarantine 
+
+-- |Return a string representation of the location of the key holding the given value.
+find :: String -> Value -> Maybe String
+find needle = f ""
+  where
+    f path (String s)  = if s == needle then Just path else Nothing
+    f path (Array xs)  = msum $ zipWith (\index value -> f (path ++ "[" ++ show index ++ "]") value) [0..] xs
+    f path (Object xs) = msum $ map (\(key, value) -> f (path ++ "." ++ key) value) xs
+    f path _           = Nothing
+
+-- |Like find, but searches for a key instead of a value.
+find' :: String -> Value -> Maybe String
+find' x y = f x y ""
+  where
+    f matchK (Array r@(x:xs)) path =
+      case find' matchK x of
+        -- TODO: Bug here, array index is calculated incorrectly.
+        Just p  -> Just (path ++ "[" ++ show (length r - length xs) ++ "]" ++ p)
+        Nothing -> f matchK (Array xs) path
+
+    f matchK (Object ((k, v):xs)) path
+      | matchK == k = Just ("." ++ k)
+      | otherwise =
+        case find' matchK v of
+          Just p  -> Just ("." ++ k ++ p)
+          Nothing -> f matchK (Object xs) ("." ++ k ++ path)
+
+    f _ _ _ = Nothing
+
+-- /
+
 -- |Convert empty input into an Empty Error
 must :: Parser [a] -> Parser [a]
 must (Parser p) = Parser $ \input -> do
@@ -55,8 +99,8 @@ parseChar x = Parser f
   where
     f (y:ys)
       | y == x    = Right (ys, y)
-      | otherwise = Left $ Wrong ([x], [y])
-    f [] = Left $ Eof [x]
+      | otherwise = Left $ Wrong ("expected: " ++ [x], "got: " ++ [y]) -- Temporary TM
+    f [] = Left $ Eof ("expected: " ++ [x])
 
 -- |Parse a single character, potentially surrounded by whitespace.
 parseDelimiter :: Char -> Parser Char

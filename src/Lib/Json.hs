@@ -1,18 +1,9 @@
-module Lib.Json where
+module Lib.Json (isJson, parseJson) where
 
 import Lib
 import Data.Char
-import Control.Applicative
 import qualified Data.Map as Map
-
-data Value
-  = Bool Bool
-  | Number Integer -- TODO: Floats
-  | String String
-  | Array [Value]
-  | Object (Map.Map String Value)
-  | Null
-  deriving (Show, Eq)
+import Control.Applicative
 
 -- This is extremely primitive
 isJson :: [Char] -> Bool
@@ -35,10 +26,11 @@ parseValue
   <|> (String <$> parseString)
   <|> (Null   <$  parseNull)
   <|> parseArray
+  <|> parseObject
 
 parseObject :: Parser Value
 parseObject
-  = Object . Map.fromList <$> (
+  = Object <$> (
      parseDelimiter '{'
   *> seperated seperator pair
   <* parseDelimiter '}')

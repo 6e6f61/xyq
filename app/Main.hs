@@ -4,6 +4,10 @@ import Paths_xyq (version)
 import Data.Version (showVersion)
 import Data.Semigroup ((<>))
 import Options.Applicative
+import Control.Monad
+
+import Lib.Json
+import qualified Lib
 
 data Opts = Opts
     { verbose :: !Bool
@@ -11,15 +15,44 @@ data Opts = Opts
     }
 
 data Command
-    = Where String
+    = Value String
+    | Key String
+    | Dump
     -- | Delete
+
+data Error
+  = ParsingError Lib.Error
+  | Unknown
+  | Missing
+  deriving (Show)
+
+-- I doubt this is proper but it'll do
+wrapParseError :: Either Lib.Error Lib.Value -> Either Error Lib.Value
+wrapParseError (Left x)  = Left $ ParsingError x
+wrapParseError (Right x) = Right x
 
 main :: IO ()
 main = do
-    opts <- execParser optsParser
-    case subcommand opts of
-        Where is -> print is
-        -- Delete -> putStrLn "Deleted the thing!"
+  stdin <- getContents
+  opts  <- execParser optsParser
+  main' stdin opts (subcommand opts)
+
+main' stdin _ Dump = print $ identAndParse stdin
+main' stdin opts (Value value) = handleApply Lib.find value stdin opts
+main' stdin opts (Key key) = handleApply Lib.find' key stdin opts
+
+handleApply x y stdin opts =
+  case x y <$> identAndParse stdin of
+    Right (Just x) -> putStrLn x
+    Right Nothing  -> printV "No match"
+    Left Unknown   -> printV "Couldn't identify data type"
+    Left x         -> printV ("Other unspecified error: " ++ show x)
+    where printV = when (verbose opts) . putStrLn
+
+identAndParse :: String -> Either Error Lib.Value
+identAndParse x
+  | isJson x = wrapParseError $ snd <$> Lib.runParser parseJson x
+  | otherwise = Left Unknown
 
 optsParser :: ParserInfo Opts
 optsParser =
@@ -29,28 +62,34 @@ optsParser =
 
 versionOption :: Parser (a -> a)
 versionOption = infoOption (showVersion version)
-  (long "version" <> short 'v' <> help "Show version")
+  (long "version" <> help "Show version")
 
 programOptions :: Parser Opts
 programOptions
   = Opts
   <$> switch
     ( long "verbose"
+    <> short 'v'
     <> help "Show errors instead of failing quietly" )
-  <*> hsubparser (whereCommand)
-  
-whereCommand :: Mod CommandFields Command
-whereCommand
-  = command "where"
-    (info whereOptions (progDesc "Find the full path or index of a key"))
+  <*> hsubparser (valueCommand <> dumpCommand <> keyCommand)
+
+dumpCommand :: Mod CommandFields Command
+dumpCommand
+  = command "dump"
+    (info (pure Dump) (progDesc "Dump the parsed AST"))
+
+valueCommand :: Mod CommandFields Command
+valueCommand
+  = command "value"
+    (info valueOptions (progDesc "Find the full path to a value by its key"))
       
-whereOptions :: Parser Command
-whereOptions
-  = Where
-  <$> strArgument (metavar "IS")
-  
--- deleteCommand :: Mod CommandFields Command
--- deleteCommand =
---     command
---         "delete"
---         (info (pure Delete) (progDesc "Delete the thing"))
+valueOptions :: Parser Command
+valueOptions = Value <$> strArgument (metavar "key")
+
+keyCommand :: Mod CommandFields Command
+keyCommand
+  = command "key"
+    (info keyOptions (progDesc "Find the full path to a key by its name"))
+
+keyOptions :: Parser Command
+keyOptions = Key <$> strArgument (metavar "key")
