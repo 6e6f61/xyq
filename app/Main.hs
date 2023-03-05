@@ -58,7 +58,7 @@ optsParser :: ParserInfo Opts
 optsParser =
   info
     (helper <*> versionOption <*> programOptions)
-    (fullDesc <> progDesc "it's kinda like jq")
+    (fullDesc <> progDesc "it's a recursive acronym!")
 
 versionOption :: Parser (a -> a)
 versionOption = infoOption (showVersion version)
